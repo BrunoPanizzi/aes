@@ -47,10 +47,7 @@ func TestECBMode(t *testing.T) {
 		t.Errorf("ECB mismatch:\n got: %x\nwant: %x", got[:len(want)], want)
 	}
 	padBlock := bytes.Repeat([]byte{16}, 16)
-	decryptedPad, err := AesDecrypt(got[len(want):], key)
-	if err != nil {
-		t.Fatalf("decrypting pad block: %v", err)
-	}
+	decryptedPad := AesDecrypt(got[len(want):], key)
 	if !bytes.Equal(decryptedPad, padBlock) {
 		t.Errorf("pad block wrong:\n got: %x\nwant: %x", decryptedPad, padBlock)
 	}
@@ -122,8 +119,7 @@ func TestCTRCounterIncrement(t *testing.T) {
 		cb := make([]byte, 16)
 		copy(cb, ctr)
 		binary.BigEndian.PutUint32(cb[12:], start+uint32(i))
-		ks, _ := AesEncrypt(cb, key)
-		expected = append(expected, ks...)
+		expected = append(expected, AesEncrypt(cb, key)...)
 	}
 
 	msg := bytes.Repeat([]byte{0}, 64) // all-zero: ciphertext == keystream
@@ -196,8 +192,8 @@ func TestOFBChaining(t *testing.T) {
 	key, _ := hex.DecodeString(modeKey)
 	iv, _ := hex.DecodeString(ofbIV)
 
-	ks0, _ := AesEncrypt(iv, key)
-	ks1Want, _ := AesEncrypt(ks0, key) // feedback: AES of previous output
+	ks0 := AesEncrypt(iv, key)
+	ks1Want := AesEncrypt(ks0, key) // feedback: AES of previous output
 
 	// zero message => ciphertext == keystream, block by block
 	ks1Got, _ := OFB(bytes.Repeat([]byte{0}, 32), key, iv)
@@ -210,7 +206,7 @@ func TestOFBChaining(t *testing.T) {
 	ctr := make([]byte, 16)
 	copy(ctr, ks0)
 	ctr[12] = 0xff // arbitrary counter start, not equal to ks0
-	ctrKS1, _ := AesEncrypt(append(ctr[:12], 0, 0, 0, 1), key)
+	ctrKS1 := AesEncrypt(append(ctr[:12], 0, 0, 0, 1), key)
 	if bytes.Equal(ctrKS1, ks1Want) {
 		t.Error("CTR and OFB keystreams coincidentally equal — impossible, check chaining")
 	}

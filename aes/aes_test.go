@@ -231,14 +231,10 @@ func runVectors(t *testing.T, decrypt bool) {
 			}
 
 			var got []byte
-			var err2 error
 			if decrypt {
-				got, err2 = AesDecrypt(in, key)
+				got = AesDecrypt(in, key)
 			} else {
-				got, err2 = AesEncrypt(in, key)
-			}
-			if err2 != nil {
-				t.Fatalf("%s vector %d: unexpected error: %v", suite.name, i, err2)
+				got = AesEncrypt(in, key)
 			}
 			if !slices.Equal(got, want) {
 				t.Errorf("%s vector %d:\n got %s: %x\nwant %s: %x", suite.name, i, dir, got, dir, want)
@@ -264,14 +260,8 @@ func TestRoundTrip(t *testing.T) {
 			pt, _ := hex.DecodeString(v.plaintext)
 			ct, _ := hex.DecodeString(v.ciphertext)
 
-			enc, err := AesEncrypt(pt, key)
-			if err != nil {
-				t.Fatalf("%s vector %d: encrypt error: %v", suite.name, i, err)
-			}
-			dec, err := AesDecrypt(enc, key)
-			if err != nil {
-				t.Fatalf("%s vector %d: decrypt error: %v", suite.name, i, err)
-			}
+			enc := AesEncrypt(pt, key)
+			dec := AesDecrypt(enc, key)
 			if !slices.Equal(dec, pt) {
 				t.Errorf("%s vector %d: round trip broken:\nplaintext:  %x\nciphertext: %x\nrecovered:  %x", suite.name, i, pt, ct, dec)
 			}

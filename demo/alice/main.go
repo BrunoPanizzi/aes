@@ -13,87 +13,131 @@
 // difference: under ECB every identical 16-byte plaintext block
 // produces an identical ciphertext block (the "ECB penguin" effect).
 // Under CTR the same message encrypts to blocks that all look random.
+//
+// Slow mode sends one byte per Enter (or per -auto interval), so Bob,
+// running `go run ./demo/bob -follow` side by side, can be watched
+// decrypting the stream as it arrives:
+//
+//	go run ./demo/alice -mode ctr -slow
+//	go run ./demo/alice -mode ecb -slow -auto 300ms
 package main
 
 import (
+	"bufio"
 	"crypto/rand"
 	"encoding/hex"
 	"flag"
 	"fmt"
+	"os"
 	"strings"
+	"time"
 
 	"github.com/BrunoPanizzi/aes-go/aes"
 	"github.com/BrunoPanizzi/aes-go/demo/shared"
 )
 
-// default message: 16-byte phrase repeated, so whole blocks repeat.
-const defaultMsg = "ATTACK AT DAWN!!ATTACK AT DAWN!!ATTACK AT DAWN!!ATTACK AT DAWN!!"
+const defaultMsg = "ataque meio dia!ataque meio dia!ataque meio dia!ataque meio dia!"
 
 func main() {
-	mode := flag.String("mode", "ctr", "cipher mode: ecb or ctr")
+	mode := flag.String("mode", "ctr", "cipher mode: ecb, ctr or ofb")
 	msg := flag.String("msg", defaultMsg, "message to send")
+	slow := flag.Bool("slow", false, "send one byte at a time (run bob with -follow)")
+	auto := flag.Duration("auto", 0, "with -slow: send a byte every interval instead of waiting for Enter")
 	flag.Parse()
+	*mode = strings.ToLower(*mode)
 
-	fmt.Printf("Alice: plaintext (%d bytes):\n%s\n\n", len(*msg), *msg)
+	fmt.Printf("Alice: texto claro (%d bytes): `%s`\n\n", len(*msg), *msg)
+
+	// nonce para o counter block (CTR) ou IV (OFB)
+	// Bob precisa dele para refazer o keystream
+	nonce := make([]byte, 16)
+	if _, err := rand.Read(nonce); err != nil {
+		panic(err)
+	}
 
 	var ciphertext []byte
 	var metadata string
 	var err error
 
-	switch strings.ToLower(*mode) {
+	switch *mode {
 	case "ecb":
-		// ECB: no extra data needed, each block is encrypted alone.
 		ciphertext, err = aes.ECB([]byte(*msg), shared.TheKey)
-		if err != nil {
-			panic(err)
-		}
 		metadata = "-"
-		fmt.Println("Alice: mode ECB — each block encrypted independently.")
+		fmt.Println("Alice: modo ECB")
 
 	case "ctr":
-		// CTR: Alice picks a fresh counter block (acts as a nonce).
-		// It is NOT secret — Bob needs it to rebuild the keystream —
-		// so it is sent openly on the channel.
-		counterBlock := make([]byte, 16)
-		if _, err := rand.Read(counterBlock); err != nil {
-			panic(err)
-		}
-		ciphertext, err = aes.CTR([]byte(*msg), shared.TheKey, counterBlock)
-		if err != nil {
-			panic(err)
-		}
-		metadata = hex.EncodeToString(counterBlock)
-		fmt.Printf("Alice: mode CTR — counter block (sent openly): %s\n", metadata)
+		ciphertext, err = aes.CTR([]byte(*msg), shared.TheKey, nonce)
+		metadata = hex.EncodeToString(nonce)
+		fmt.Printf("Alice: modo CTR. Counter block: %s\n", metadata)
 
 	case "ofb":
-		// OFB: like CTR, a stream cipher — Alice picks a random IV,
-		// sent openly because Bob needs it to rebuild the keystream.
-		// The difference is invisible at this level (both produce
-		// random-looking blocks); it's in HOW the keystream is made:
-		// CTR counts, OFB feeds each keystream block back into AES.
-		iv := make([]byte, 16)
-		if _, err := rand.Read(iv); err != nil {
-			panic(err)
-		}
-		ciphertext, err = aes.OFB([]byte(*msg), shared.TheKey, iv)
-		if err != nil {
-			panic(err)
-		}
-		metadata = hex.EncodeToString(iv)
-		fmt.Printf("Alice: mode OFB — IV (sent openly): %s\n", metadata)
+		ciphertext, err = aes.OFB([]byte(*msg), shared.TheKey, nonce)
+		metadata = hex.EncodeToString(nonce)
+		fmt.Printf("Alice: mode OFB. IV: %s\n", metadata)
 
 	default:
-		panic(fmt.Sprintf("unknown mode %q (use ecb or ctr)", *mode))
+		panic(fmt.Sprintf("unknown mode %q (use ecb, ctr or ofb)", *mode))
 	}
-
-	fmt.Printf("\nAlice: ciphertext (%d bytes):\n", len(ciphertext))
-	printBlockDump(ciphertext)
-
-	if err := shared.SendMessage(strings.ToLower(*mode), metadata, hex.EncodeToString(ciphertext)); err != nil {
+	if err != nil {
 		panic(err)
 	}
 
-	fmt.Printf("\nAlice: wrote to channel %q. Now run: go run ./demo/bob\n", shared.TheChannel)
+	if *slow {
+		keystream := shared.Keystream(*mode, shared.TheKey, nonce, len(ciphertext))
+		sendSlowly(*mode, metadata, []byte(*msg), ciphertext, keystream, *auto)
+		return
+	}
+
+	fmt.Printf("\nAlice: texto crifrado %s (%d bytes):\n", ciphertext, len(ciphertext))
+	printBlockDump(ciphertext)
+
+	if err := shared.SendMessage(*mode, metadata, hex.EncodeToString(ciphertext)); err != nil {
+		panic(err)
+	}
+
+	fmt.Printf("\nAlice: arquivo %q escrito.\n", shared.TheChannel)
+}
+
+// sendSlowly appends the ciphertext to the channel one byte at a time,
+// showing how each byte was produced. keystream is nil for ECB.
+func sendSlowly(mode, metadata string, plaintext, ciphertext, keystream []byte, auto time.Duration) {
+	f, err := shared.OpenChannel(mode, metadata)
+	if err != nil {
+		panic(err)
+	}
+	defer f.Close()
+
+	fmt.Println("\nAlice: canal aberto")
+	if auto == 0 {
+		fmt.Println("Alice: pressione Enter para enviar o próximo byte.")
+	}
+	stdin := bufio.NewScanner(os.Stdin)
+
+	for i, c := range ciphertext {
+		if auto > 0 {
+			time.Sleep(auto)
+		} else {
+			stdin.Scan()
+		}
+
+		if keystream != nil {
+			fmt.Printf("byte %2d: %q %#02x ^ ks %#02x = %#02x\n", i, plaintext[i], plaintext[i], keystream[i], c)
+		} else {
+			// ECB: ciphertext is padded, so it may be longer than plaintext
+			// and a byte on its own means nothing — only whole blocks do.
+			fmt.Printf("byte %2d: %#02x", i, c)
+			if (i+1)%16 == 0 {
+				fmt.Printf("   <- bloco %d finalizado", i/16)
+			}
+			fmt.Println()
+		}
+
+		if _, err := fmt.Fprintf(f, "%02x", c); err != nil {
+			panic(err)
+		}
+	}
+	fmt.Fprintln(f)
+	fmt.Println("\nAlice: terminou.")
 }
 
 // printBlockDump prints ciphertext one 16-byte block per line,

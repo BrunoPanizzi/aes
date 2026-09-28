@@ -1,9 +1,6 @@
 package aes
 
-import (
-	"fmt"
-	"slices"
-)
+import "slices"
 
 func sliceXor(a, b []byte) (out []byte) {
 	if len(a) != len(b) {
@@ -198,9 +195,7 @@ func Cypher(in []byte, nr int, roundKeys [][]byte) (out []byte) {
 	return out
 }
 
-// gmul multiplica a por b no campo GF(2⁸), módulo 0x11b.
-// Double-and-add: para cada bit de b, soma (XOR) a deslocado;
-// o deslocamento é a multiplicação por x (galoisTimes2).
+// ???????????
 func gmul(a, b byte) byte {
 	result := byte(0)
 	for range 8 {
@@ -217,7 +212,7 @@ func gmul(a, b byte) byte {
 // ⎡0e 0b 0d 09⎤
 // ⎢09 0e 0b 0d⎥
 // ⎢0d 09 0e 0b⎥
-// ⎣0b 0d 09 0e⎦ em GF(2⁸) (FIPS 197 §5.3.3)
+// ⎣0b 0d 09 0e⎦ em GF(2⁸)
 func invMixColumns(in []byte) (out []byte) {
 	out = make([]byte, BLOCK_SIZE)
 
@@ -289,24 +284,20 @@ func InvCypher(in []byte, nr int, roundKeys [][]byte) (out []byte) {
 	return out
 }
 
-func AesDecrypt(block, key []byte) (out []byte, error error) {
-	if len(block) != 16 {
-		return nil, fmt.Errorf("block must be exactly 16 bytes")
+// AesDecrypt e AesEncrypt operam num único bloco de 16 bytes.
+// Tamanho errado de bloco ou chave dá panic
+func AesDecrypt(block, key []byte) []byte {
+	if len(block) != BLOCK_SIZE {
+		panic("block must be exactly 16 bytes")
 	}
 	_, nr := getNkNrFromKey(key)
-
-	out = InvCypher(block, nr, KeyExpansion(key))
-
-	return out, nil
+	return InvCypher(block, nr, KeyExpansion(key))
 }
 
-func AesEncrypt(block, key []byte) (out []byte, error error) {
-	if len(block) != 16 {
-		return nil, fmt.Errorf("block must be exactly 16 bytes")
+func AesEncrypt(block, key []byte) []byte {
+	if len(block) != BLOCK_SIZE {
+		panic("block must be exactly 16 bytes")
 	}
 	_, nr := getNkNrFromKey(key)
-
-	out = Cypher(block, nr, KeyExpansion(key))
-
-	return out, nil
+	return Cypher(block, nr, KeyExpansion(key))
 }

@@ -1,7 +1,13 @@
 package main
 
-import "github.com/BrunoPanizzi/aes-go/aes"
+import (
+	"fmt"
+
+	"github.com/BrunoPanizzi/aes-go/aes"
+)
 
 func main() {
-	aes.Aes128("hello, world!")
+	key := []byte("0123456789abcdef")
+	block := []byte("ATTACK AT DAWN!!")
+	fmt.Printf("%x\n", aes.AesEncrypt(block, key))
 }
