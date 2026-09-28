@@ -128,7 +128,9 @@ func receiveSlowly() {
 			panic(err)
 		}
 	}
-	fmt.Printf("\nBob: fim da mensagem. texto claro (%d bytes): `%s`\n", len(plaintext), plaintext)
+	fmt.Printf("\nBob: fim da mensagem.\n")
+	fmt.Printf("  recebido  (%2d bytes): %x\n", len(all), all)
+	fmt.Printf("  decifrado (%2d bytes): %s\n", len(plaintext), plaintext)
 }
 
 // printBlockDump prints ciphertext one 16-byte block per line,
