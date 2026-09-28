@@ -198,6 +198,108 @@ func Cypher(in []byte, nr int, roundKeys [][]byte) (out []byte) {
 	return out
 }
 
+// gmul multiplica a por b no campo GF(2⁸), módulo 0x11b.
+// Double-and-add: para cada bit de b, soma (XOR) a deslocado;
+// o deslocamento é a multiplicação por x (galoisTimes2).
+func gmul(a, b byte) byte {
+	result := byte(0)
+	for range 8 {
+		if b&0x01 != 0 {
+			result ^= a
+		}
+		a = galoisTimes2(a)
+		b >>= 1
+	}
+	return result
+}
+
+// InvMixColumns: cada coluna é multiplicada pela matriz inversa
+// ⎡0e 0b 0d 09⎤
+// ⎢09 0e 0b 0d⎥
+// ⎢0d 09 0e 0b⎥
+// ⎣0b 0d 09 0e⎦ em GF(2⁸) (FIPS 197 §5.3.3)
+func invMixColumns(in []byte) (out []byte) {
+	out = make([]byte, BLOCK_SIZE)
+
+	for col := range 4 {
+		s0, s1, s2, s3 := in[0+col], in[4+col], in[8+col], in[12+col]
+
+		out[0+col] = gmul(0x0e, s0) ^ gmul(0x0b, s1) ^ gmul(0x0d, s2) ^ gmul(0x09, s3)
+		out[4+col] = gmul(0x09, s0) ^ gmul(0x0e, s1) ^ gmul(0x0b, s2) ^ gmul(0x0d, s3)
+		out[8+col] = gmul(0x0d, s0) ^ gmul(0x09, s1) ^ gmul(0x0e, s2) ^ gmul(0x0b, s3)
+		out[12+col] = gmul(0x0b, s0) ^ gmul(0x0d, s1) ^ gmul(0x09, s2) ^ gmul(0x0e, s3)
+	}
+
+	return out
+}
+
+func invSubBytes(in []byte) (out []byte) {
+	out = make([]byte, BLOCK_SIZE)
+
+	for i := range BLOCK_SIZE {
+		curr := in[i]
+		out[i] = INVSBOX[curr>>4][0x0F&curr]
+	}
+
+	return out
+}
+
+func invShiftRows(in []byte) (out []byte) {
+	out = make([]byte, BLOCK_SIZE)
+
+	for row := range 4 {
+		out[row*4+0] = in[row*4+(0-row+4)%4]
+		out[row*4+1] = in[row*4+(1-row+4)%4]
+		out[row*4+2] = in[row*4+(2-row+4)%4]
+		out[row*4+3] = in[row*4+(3-row+4)%4]
+	}
+
+	return out
+}
+
+func InvCypher(in []byte, nr int, roundKeys [][]byte) (out []byte) {
+	state := make([]byte, BLOCK_SIZE)
+	out = make([]byte, BLOCK_SIZE)
+
+	for row := range 4 {
+		for col := range 4 {
+			state[col*4+row] = in[row*4+col]
+		}
+	}
+
+	state = addRoundKey(state, roundKeys[nr])
+
+	for i := nr - 1; i > 0; i-- {
+		state = invShiftRows(state)
+		state = invSubBytes(state)
+		state = addRoundKey(state, roundKeys[i])
+		state = invMixColumns(state)
+	}
+
+	state = invShiftRows(state)
+	state = invSubBytes(state)
+	state = addRoundKey(state, roundKeys[0])
+
+	for row := range 4 {
+		for col := range 4 {
+			out[col*4+row] = state[row*4+col]
+		}
+	}
+
+	return out
+}
+
+func AesDecrypt(block, key []byte) (out []byte, error error) {
+	if len(block) != 16 {
+		return nil, fmt.Errorf("block must be exactly 16 bytes")
+	}
+	_, nr := getNkNrFromKey(key)
+
+	out = InvCypher(block, nr, KeyExpansion(key))
+
+	return out, nil
+}
+
 func AesEncrypt(block, key []byte) (out []byte, error error) {
 	if len(block) != 16 {
 		return nil, fmt.Errorf("block must be exactly 16 bytes")
