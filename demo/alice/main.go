@@ -149,7 +149,7 @@ func printBlockDump(data []byte) {
 		block := hex.EncodeToString(data[i*16 : end])
 		marker := ""
 		if first, ok := seen[block]; ok {
-			marker = fmt.Sprintf("  <-- same as block %d", first)
+			marker = fmt.Sprintf("  <-- igual ao bloco %d", first)
 		} else {
 			seen[block] = i
 		}
