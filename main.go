@@ -8,6 +8,6 @@ import (
 
 func main() {
 	key := []byte("0123456789abcdef")
-	block := []byte("ATTACK AT DAWN!!")
+	block := []byte("Edson eu te amo!")
 	fmt.Printf("%x\n", aes.AesEncrypt(block, key))
 }
